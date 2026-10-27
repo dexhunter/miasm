@@ -1080,23 +1080,32 @@ class cls_mn(with_metaclass(metamn, object)):
 
     @classmethod
     def guess_mnemo(cls, bs, attrib, pre_dis_info, offset):
-        candidates = []
-
         candidates = set()
+        bit_values = {}
+        getbits = cls.getbits
+        cached_bits = bit_values.get
 
         fname_values = pre_dis_info
         todo = [
-            (dict(fname_values), branch, offset * 8)
-            for branch in list(viewitems(cls.bintree))
+            (dict(fname_values), field, vals, offset * 8)
+            for field, vals in viewitems(cls.bintree)
         ]
-        for fname_values, branch, offset_b in todo:
-            (l, fmask, fbits, fname, flen), vals = branch
+        for fname_values, field, vals, offset_b in todo:
+            l, fmask, fbits, fname, flen = field
 
             if flen is not None:
+                fname_values = fname_values.copy()
                 l = flen(attrib, fname_values)
             if l is not None:
                 try:
-                    v = cls.getbits(bs, attrib, offset_b, l)
+                    if type(offset_b) is int and type(l) is int:
+                        key = offset_b, l
+                        v = cached_bits(key)
+                        if v is None:
+                            v = getbits(bs, attrib, offset_b, l)
+                            bit_values[key] = v
+                    else:
+                        v = getbits(bs, attrib, offset_b, l)
                 except IOError:
                     # Raised if offset is out of bound
                     continue
@@ -1104,14 +1113,16 @@ class cls_mn(with_metaclass(metamn, object)):
                 if v & fmask != fbits:
                     continue
                 if fname is not None and not fname in fname_values:
+                    if flen is None:
+                        fname_values = fname_values.copy()
                     fname_values[fname] = v
             for nb, v in viewitems(vals):
                 if 'mn' in nb:
                     candidates.update(v)
                 else:
-                    todo.append((dict(fname_values), (nb, v), offset_b))
+                    todo.append((fname_values, nb, v, offset_b))
 
-        return [c for c in candidates]
+        return list(candidates)
 
     def reset_class(self):
         for f in self.fields_order:
